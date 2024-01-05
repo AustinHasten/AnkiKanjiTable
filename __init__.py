@@ -11,12 +11,11 @@
 
 # TODO
 #   Make sure times are being converted to the correct time zones
-#   Add linux support
 #   Make stuff into enums like which size option is selected and junk
 #   TEST THIS ON NOTES THAT HAVE MULTIPLE CARD TYPES
 # PNG
-#   Add quality slider
 # GIF
+#   Add linux support
 #   Clear tmpDir between gif runs to prevent old pictures from getting in the gif
 #   resize instead of fail if table is too big for gif
 
