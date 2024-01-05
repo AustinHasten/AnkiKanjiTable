@@ -12,6 +12,10 @@ To be added maybe?:
 * User-configurable themes
 * Allow regex for field name in case you have kanji fields with different names that you want in the same table
 
+Not planned to be added:
+* Export to HTML (don't see the utility)
+* Separate based on JLPT level, etc. (doesn't really make sense in the context of a table)
+
 Notes: 
 * You can click on a cell to open that kanji's details in Jisho.
 * For the Sort option, a card's Index is currently just the card's ID (can be found on the Card Info screen)
