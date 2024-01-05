@@ -17,5 +17,6 @@ Notes:
 * For the Sort option, a card's Index is currently just the card's ID (can be found on the Card Info screen)
 * The "Time Travel To" option shows what the table would have looked like at a specific point in time. If you set it to Jan 1 2020, the table should look like what it would have on that date. It can be fun to look back on your progress.
 * The PNG Quality slider is a bit esoteric right now but just raise it if the PNG is not sharp enough. It controls each table cell's resolution in the resulting PNG and ranges from 25px\*25px to 200px*200px.
+* The "Smooth" option just adds linear interpolation between the colors to smooth them out.
 
 Inspired by [Kanji Grid](https://ankiweb.net/shared/info/909972618) (See here for a color key)
