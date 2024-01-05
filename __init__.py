@@ -124,7 +124,9 @@ class KanjiCell(QTableWidgetItem):
     @classmethod
     def fromCard(cls, value, card, timeTravelDatetime=None, *args, **kwargs):
         idx = card.id  # Index within the list of kanji. Right now it's just the cid.
-        value = value  # The kanji character itself (the value of whatever field name you put in)
+        if len(value) > 1:
+            value = value[0]
+        # value = value  # The kanji character itself (the value of whatever field name you put in)
         if not timeTravelDatetime:
             ivl = card.ivl
         else:
