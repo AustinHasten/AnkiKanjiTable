@@ -8,6 +8,10 @@ To be added:
 * The ability to select a start date and end date and create a gif showing the table over that span (mostly done).
 * re: Time Travel To - account for local time zone and rollover setting (simple)
 
+To be added maybe?:
+* User-configurable themes
+* Allow regex for field name in case you have kanji fields with different names that you want in the same table
+
 Notes: 
 * You can click on a cell to open that kanji's details in Jisho.
 * For the Sort option, a card's Index is currently just the card's ID (can be found on the Card Info screen)
