@@ -29,13 +29,16 @@
 #   Find a way to move createGIF to table class
 
 import os
+import re
+import fnmatch
 import datetime
 import math
 import subprocess
 import webbrowser
+import unicodedata
 
 from aqt import mw, gui_hooks
-from aqt.qt import Qt, qconnect, QColor, QBrush, QTableWidgetItem, QTableWidget, QAbstractItemView, QFileDialog, QStandardPaths, QStyle, QSize, QWidget, QHBoxLayout, QSplitter, QVBoxLayout, QSizePolicy, QComboBox, QScrollArea, QSpinBox, QButtonGroup, QRadioButton, QDateTime, QDateTimeEdit, QDate, QDateEdit, QPushButton, QCheckBox, QSlider, QLabel, QAction, QPainter, QPainterPath, QFontDatabase, QDialog, QPixmap, QImage
+from aqt.qt import Qt, qconnect, QColor, QBrush, QTableWidgetItem, QTableWidget, QAbstractItemView, QFileDialog, QStandardPaths, QStyle, QSize, QWidget, QHBoxLayout, QSplitter, QVBoxLayout, QSizePolicy, QComboBox, QScrollArea, QSpinBox, QButtonGroup, QRadioButton, QDateTime, QDateTimeEdit, QDate, QDateEdit, QPushButton, QCheckBox, QSlider, QLabel, QAction, QPainter, QPainterPath, QFontDatabase, QDialog, QPixmap, QImage, QLineEdit
 # from aqt.utils import showCritical
 from anki import utils as ankiUtils
 
@@ -121,23 +124,21 @@ class KanjiCell(QTableWidgetItem):
         self.value = value
         self.ivl = ivl
 
-    @classmethod
-    def fromCard(cls, value, card, timeTravelDatetime=None, *args, **kwargs):
-        idx = card.id  # Index within the list of kanji. Right now it's just the cid.
-        if len(value) > 1:
-            value = value[0]
-        # value = value  # The kanji character itself (the value of whatever field name you put in)
-        if not timeTravelDatetime:
-            ivl = card.ivl
-        else:
-            qry = queries['LatestReviewForCardOnDate'].format(cid=card.id, date=timeTravelDatetime.timestamp())
-            ivl = mw.col.db.first(qry)[1]
-            if ivl is None:
-                ivl = 0
-            else:
-                # If ivl is < 1, it's in seconds rather than days - we'll round that to 1 day for convenience
-                ivl = max(ivl, 1)
-        return cls(idx, value, ivl)
+    # @classmethod
+    # def fromCard(cls, value, card):  # timeTravelDatetime=None, *args, **kwargs):
+    #     idx = card.id  # Index within the list of kanji. Right now it's just the cid.
+    #     if len(value) > 1:
+    #         value = value[0]
+    #     ivl = card.ivl
+    #     # if timeTravelDateTime:
+    #     #     qry = queries['LatestReviewForCardOnDate'].format(cid=card.id, date=timeTravelDatetime.timestamp())
+    #     #     ivl = mw.col.db.first(qry)[1]
+    #     #     if ivl is None:
+    #     #         ivl = 0
+    #     #     else:
+    #     #         # If ivl is < 1, it's in seconds rather than days - we'll round that to 1 day for convenience
+    #     #         ivl = max(ivl, 1)
+    #     return cls(idx, value, ivl)
 
     @classmethod
     def copy(cls, cell):
@@ -276,24 +277,35 @@ class KanjiTable(QTableWidget):
                     yield cell
 
 
+cjk_re = re.compile("CJK (UNIFIED|COMPATIBILITY) IDEOGRAPH")
+
+
+def isKanji(unichar):
+    return bool(cjk_re.match(unicodedata.name(unichar, "")))
+
+
 class MyApp(QWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.buildGUI()
 
-    def getKanjiCells(self, timeTravelDatetime=None):
-        cids = mw.col.find_cards(f'"deck:{self.deckCombo.currentText()}"')
-        fieldName = self.fieldNameCombo.currentText().casefold()
+    def getKanjiCells(self):  # timeTravelDatetime=None):
+        cids = mw.col.find_cards(self.filterInput.text())
+        fieldNamePattern = self.fieldNamePatternInput.text()
 
-        kanjiCells = []
+        d = {}
         for cid in cids:
             card = mw.col.get_card(cid)
             note = card.note()
-            matchingField = next((f for f in note.keys() if f.casefold() == fieldName), None)
-            if matchingField:
-                value = note[matchingField]
-                kanjiCells.append(KanjiCell.fromCard(value, card, timeTravelDatetime))
-        return kanjiCells
+            matchingFields = [f for f in note.keys() if fnmatch.fnmatch(f, fieldNamePattern)]
+            kanji = [char for matchingField in matchingFields for char in note[matchingField] if isKanji(char)]
+            for k in kanji:
+                if k not in d or card.ivl > d[k]['ivl']:
+                    d[k] = {
+                        'ivl': card.ivl,
+                        'id': card.id
+                    }
+        return [KanjiCell(idx=v['id'], value=k, ivl=v['ivl']) for k, v in d.items()]
 
     def buildGUI(self):
         self.mainLayout = QHBoxLayout(self)
@@ -304,18 +316,18 @@ class MyApp(QWidget):
         self.leftLayout = QVBoxLayout(self.leftContainer)
         self.leftLayoutTopLayout = QHBoxLayout()
 
-        self.deckCombo = QComboBox()
-        self.deckCombo.addItems(sorted(mw.col.decks.all_names()))
-        self.deckCombo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
         self.settingsGroupBox = MyGroupBox('Settings')
         self.middleScroll = QScrollArea()
         self.middleScroll.setWidgetResizable(True)
         self.middleScroll.setWidget(self.settingsGroupBox)
 
-        self.fieldNameGroupBox = MyGroupBox('Field Name')
-        self.fieldNameCombo = QComboBox()
-        self.fieldNameGroupBox.layout.addWidget(self.fieldNameCombo)
+        self.fieldNameGroupBox = MyGroupBox('Field Name (case-insensitive, wildcards allowed)')
+        self.fieldNamePatternInput = QLineEdit('Kanji')
+        self.fieldNameGroupBox.layout.addWidget(self.fieldNamePatternInput)
+
+        self.filterGroupBox = MyGroupBox('Filter')
+        self.filterInput = QLineEdit('deck:*')
+        self.filterGroupBox.layout.addWidget(self.filterInput)
 
         self.strongIntervalSpin = QSpinBox()
         self.strongIntervalSpin.setRange(1, 65536)
@@ -349,13 +361,13 @@ class MyApp(QWidget):
         self.sizeGroupBox.layout.addWidget(self.specifyRowsRadio)
         self.sizeGroupBox.layout.addWidget(self.specifyRowsSpin)
 
-        self.timeTravelInput = QDateTimeEdit()
-        self.timeTravelInput.setCalendarPopup(True)
-        self.timeTravelInput.setDateTime(QDateTime.currentDateTime())
-        self.timeTravelGroupBox = MyGroupBox('Time Travel To')
-        self.timeTravelGroupBox.layout.addWidget(self.timeTravelInput)
-        self.timeTravelGroupBox.setCheckable(True)
-        self.timeTravelGroupBox.setChecked(False)
+        # self.timeTravelInput = QDateTimeEdit()
+        # self.timeTravelInput.setCalendarPopup(True)
+        # self.timeTravelInput.setDateTime(QDateTime.currentDateTime())
+        # self.timeTravelGroupBox = MyGroupBox('Time Travel To')
+        # self.timeTravelGroupBox.layout.addWidget(self.timeTravelInput)
+        # self.timeTravelGroupBox.setCheckable(True)
+        # self.timeTravelGroupBox.setChecked(False)
 
         self.sortCombo = QComboBox()
         self.sortCombo.addItems(['Index', 'Interval'])
@@ -402,15 +414,14 @@ class MyApp(QWidget):
         self.table.verticalHeader().setMinimumSectionSize(self.fontSizeSlider.minimum())
 
         # Connect signals to slots
-        self.deckCombo.currentTextChanged.connect(self.deckChanged)
+        # self.deckCombo.currentTextChanged.connect(self.deckChanged)
         self.sizeButtonGroup.buttonClicked.connect(self.sizeOptionChanged)
         self.sortCombo.currentIndexChanged.connect(self.sortChanged)
         self.themeCombo.currentIndexChanged.connect(self.themeChanged)
         self.themeSmoothCheck.stateChanged.connect(self.smoothToggled)
-        self.fieldNameCombo.currentIndexChanged.connect(self.fieldNameChanged)
         self.strongIntervalSpin.textChanged.connect(self.strongIntervalChanged)
-        self.timeTravelGroupBox.toggled.connect(self.timeTravelToggled)
-        self.timeTravelInput.dateTimeChanged.connect(self.timeTravelDateChanged)
+        # self.timeTravelGroupBox.toggled.connect(self.timeTravelToggled)
+        # self.timeTravelInput.dateTimeChanged.connect(self.timeTravelDateChanged)
 
         self.savePNGBtn.clicked.connect(self.takeScreenshot)
         self.generateBtn.clicked.connect(self.populateTable)
@@ -418,16 +429,17 @@ class MyApp(QWidget):
         self.fontSizeSlider.valueChanged.connect(self.fontSizeSliderMoved)
 
         # Add stuff to leftLayoutTopLayout
-        self.leftLayoutTopLayout.addWidget(QLabel("Deck: "))
-        self.leftLayoutTopLayout.addWidget(self.deckCombo)
+        # self.leftLayoutTopLayout.addWidget(QLabel("Deck: "))
+        # self.leftLayoutTopLayout.addWidget(self.deckCombo)
 
         # Add stuff to leftLayoutMiddleLayout
         # self.settingsGroupBox.layout.addWidget(self.patternGroupBox)
         self.settingsGroupBox.layout.addWidget(self.fieldNameGroupBox)
+        self.settingsGroupBox.layout.addWidget(self.filterGroupBox)
         self.settingsGroupBox.layout.addWidget(self.strongIntervalGroupBox)
         self.settingsGroupBox.layout.addWidget(self.sizeGroupBox)
         self.settingsGroupBox.layout.addWidget(self.sortGroupBox)
-        self.settingsGroupBox.layout.addWidget(self.timeTravelGroupBox)
+        # self.settingsGroupBox.layout.addWidget(self.timeTravelGroupBox)
         self.settingsGroupBox.layout.addWidget(self.themeGroupBox)
         self.settingsGroupBox.layout.addWidget(self.fontSizeGroupBox)
         self.settingsGroupBox.layout.addWidget(self.qualityGroupBox)
@@ -438,7 +450,7 @@ class MyApp(QWidget):
         # self.leftLayoutBottomLayout.addWidget(self.openGIFBtn)
 
         # Add stuff to leftLayout
-        self.leftLayout.addLayout(self.leftLayoutTopLayout)
+        # self.leftLayout.addLayout(self.leftLayoutTopLayout)
         self.leftLayout.addWidget(self.middleScroll)
         self.leftLayout.addLayout(self.leftLayoutBottomLayout)
 
@@ -455,11 +467,11 @@ class MyApp(QWidget):
     def takeScreenshot(self):
         self.table.screenshot(self.qualitySlider.value())
 
-    def timeTravelDateChanged(self):
-        self.populateTable()
+    # def timeTravelDateChanged(self):
+    #     self.populateTable()
 
-    def timeTravelToggled(self):
-        self.populateTable()
+    # def timeTravelToggled(self):
+    #     self.populateTable()
 
     def strongIntervalChanged(self):
         self.populateTable()
@@ -480,22 +492,6 @@ class MyApp(QWidget):
     def themeChanged(self, idx):
         self.populateTable()
 
-    def deckChanged(self, newDeck):
-        noteIds = mw.col.find_notes(f'"deck:{self.deckCombo.currentText()}"')
-        notes = [mw.col.get_note(noteId) for noteId in noteIds]
-        fields = [f for n in notes for f in n.keys()]  # Get all the fields for all the notes
-        fields = sorted(list(set(fields)), key=str.casefold)  # Remove duplicates then sort alphabetically
-
-        self.fieldNameCombo.clear()
-        self.fieldNameCombo.addItems(fields)
-
-        # If there are any fields which have 'kanji' in the name, select the first one by default
-        kanjiIdx = next((i for i, v in enumerate(fields) if 'kanji'.casefold() in v.casefold()), None)
-        if kanjiIdx:
-            self.fieldNameCombo.setCurrentIndex(kanjiIdx)
-
-        self.populateTable()
-
     def fontSizeSliderMoved(self, newSize):
         self.table.setFontSize(newSize)
         if self.fitToWidthRadio.isChecked():
@@ -503,13 +499,13 @@ class MyApp(QWidget):
         elif self.fitToHeightRadio.isChecked():
             self.table.updateRowCount(self.table.rowsToFit())
 
-    def populateTable(self, timeTravelDatetime=None):
+    def populateTable(self):  # timeTravelDatetime=None):
         self.table.clear()
 
-        if not timeTravelDatetime and self.timeTravelGroupBox.isChecked():
-            timeTravelDatetime = self.timeTravelInput.dateTime().toPyDateTime()
+        # if not timeTravelDatetime and self.timeTravelGroupBox.isChecked():
+        #     timeTravelDatetime = self.timeTravelInput.dateTime().toPyDateTime()
 
-        cells = self.getKanjiCells(timeTravelDatetime)
+        cells = self.getKanjiCells()  # timeTravelDatetime)
         if self.sortCombo.currentText() == 'Index':
             cells = sorted(cells, key=lambda _: _.idx)
         elif self.sortCombo.currentText() == 'Interval':
