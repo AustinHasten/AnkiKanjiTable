@@ -38,7 +38,7 @@ import webbrowser
 import unicodedata
 
 from aqt import mw, gui_hooks
-from aqt.qt import Qt, qconnect, QColor, QBrush, QTableWidgetItem, QTableWidget, QAbstractItemView, QFileDialog, QStandardPaths, QStyle, QSize, QWidget, QHBoxLayout, QSplitter, QVBoxLayout, QSizePolicy, QComboBox, QScrollArea, QSpinBox, QButtonGroup, QRadioButton, QDateTime, QDateTimeEdit, QDate, QDateEdit, QPushButton, QCheckBox, QSlider, QLabel, QAction, QPainter, QPainterPath, QFontDatabase, QDialog, QPixmap, QImage, QLineEdit
+from aqt.qt import Qt, qconnect, QColor, QBrush, QTableWidgetItem, QTableWidget, QAbstractItemView, QFileDialog, QStandardPaths, QStyle, QSize, QWidget, QHBoxLayout, QSplitter, QVBoxLayout, QSizePolicy, QComboBox, QScrollArea, QSpinBox, QButtonGroup, QRadioButton, QDateTime, QDateTimeEdit, QDate, QDateEdit, QPushButton, QCheckBox, QSlider, QLabel, QAction, QPainter, QPainterPath, QFontDatabase, QDialog, QPixmap, QImage, QLineEdit, QTimer, pyqtSignal
 # from aqt.utils import showCritical
 from anki import utils as ankiUtils
 
@@ -46,12 +46,19 @@ from .utils import queries, MyGroupBox, dateRange, maxDatetime, minDatetime
 from .colorUtils import themes, getColor, invertColor
 
 # exe = os.path.join(os.path.dirname(__file__), 'ffmpeg.exe')
-localTZ = datetime.datetime.utcnow().astimezone().tzinfo  # https://stackoverflow.com/a/39079819
+# localTZ = datetime.datetime.utcnow().astimezone().tzinfo  # https://stackoverflow.com/a/39079819
 
 seenFGColor = QColor('#000000')
 unseenFGColor = QColor('#000000')
 unseenBGColor = QColor('#FFFFFF')
 
+
+class MyQLineEdit(QLineEdit):
+    focusLost = pyqtSignal()
+
+    def focusOutEvent(self, event):
+        self.focusLost.emit()
+        super().focusOutEvent(event)
 
 # class GIFDialog(QDialog):
 #     def manualStartDateToggled(self, isChecked):
@@ -242,10 +249,12 @@ class KanjiTable(QTableWidget):
 
     def colsToFit(self):
         tileWidth = self.font().pointSize() * 2
+        print(f'{self.width()=}, {len(list(self.allItems()))}')
         containerWidth = self.width()
         if (tileWidth * self.rowCount()) > self.height():
             scrollBarWidth = self.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
             containerWidth -= scrollBarWidth
+        print(f'coltofit={math.floor(containerWidth / tileWidth)}, {len(list(self.allItems()))}')
         return math.floor(containerWidth / tileWidth)
 
     def rowsToFit(self):
@@ -321,12 +330,12 @@ class MyApp(QWidget):
         self.middleScroll.setWidgetResizable(True)
         self.middleScroll.setWidget(self.settingsGroupBox)
 
-        self.fieldNameGroupBox = MyGroupBox('Field Name (case-insensitive, wildcards allowed)')
-        self.fieldNamePatternInput = QLineEdit('Kanji')
+        self.fieldNameGroupBox = MyGroupBox('Field Name')
+        self.fieldNamePatternInput = MyQLineEdit('*Kanji*')
         self.fieldNameGroupBox.layout.addWidget(self.fieldNamePatternInput)
 
         self.filterGroupBox = MyGroupBox('Filter')
-        self.filterInput = QLineEdit('deck:*')
+        self.filterInput = MyQLineEdit('deck:*')
         self.filterGroupBox.layout.addWidget(self.filterInput)
 
         self.strongIntervalSpin = QSpinBox()
@@ -422,6 +431,10 @@ class MyApp(QWidget):
         self.strongIntervalSpin.textChanged.connect(self.strongIntervalChanged)
         # self.timeTravelGroupBox.toggled.connect(self.timeTravelToggled)
         # self.timeTravelInput.dateTimeChanged.connect(self.timeTravelDateChanged)
+        self.fieldNamePatternInput.returnPressed.connect(self.fieldNamePatternChanged)
+        self.fieldNamePatternInput.focusLost.connect(self.fieldNamePatternChanged)
+        self.filterInput.returnPressed.connect(self.filterChanged)
+        self.filterInput.focusLost.connect(self.filterChanged)
 
         self.savePNGBtn.clicked.connect(self.takeScreenshot)
         self.generateBtn.clicked.connect(self.populateTable)
@@ -464,6 +477,14 @@ class MyApp(QWidget):
         # Finishing touches
         self.fitToWidthRadio.click()
 
+        self.populateTable()
+
+    def filterChanged(self):
+        self.populateTable()
+
+    def fieldNamePatternChanged(self):
+        self.populateTable()
+
     def takeScreenshot(self):
         self.table.screenshot(self.qualitySlider.value())
 
@@ -500,12 +521,14 @@ class MyApp(QWidget):
             self.table.updateRowCount(self.table.rowsToFit())
 
     def populateTable(self):  # timeTravelDatetime=None):
+        print('Starting  populatetable')
         self.table.clear()
 
         # if not timeTravelDatetime and self.timeTravelGroupBox.isChecked():
         #     timeTravelDatetime = self.timeTravelInput.dateTime().toPyDateTime()
 
         cells = self.getKanjiCells()  # timeTravelDatetime)
+        self.setWindowTitle(f'Kanji Table ({len(cells)})')
         if self.sortCombo.currentText() == 'Index':
             cells = sorted(cells, key=lambda _: _.idx)
         elif self.sortCombo.currentText() == 'Interval':
@@ -548,6 +571,13 @@ class MyApp(QWidget):
             self.table.setItem(int(idx / cols), idx % cols, cell)
 
         self.table.resizeCellsToFitContents()
+
+        print('ending populatetable')
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self.populateTable)
+
 
     '''
     def getStartDate(self):
