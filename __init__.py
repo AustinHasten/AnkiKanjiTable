@@ -249,12 +249,10 @@ class KanjiTable(QTableWidget):
 
     def colsToFit(self):
         tileWidth = self.font().pointSize() * 2
-        print(f'{self.width()=}, {len(list(self.allItems()))}')
         containerWidth = self.width()
         if (tileWidth * self.rowCount()) > self.height():
             scrollBarWidth = self.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
             containerWidth -= scrollBarWidth
-        print(f'coltofit={math.floor(containerWidth / tileWidth)}, {len(list(self.allItems()))}')
         return math.floor(containerWidth / tileWidth)
 
     def rowsToFit(self):
@@ -298,20 +296,32 @@ class MyApp(QWidget):
         super().__init__(*args, **kwargs)
         self.buildGUI()
 
-    def getKanjiCells(self):  # timeTravelDatetime=None):
+    def getTimeTravelIvl(self, cid, timeTravelDateTime):
+        qry = queries['LatestReviewForCardOnDate'].format(cid=cid, date=timeTravelDateTime.timestamp())
+        ivl = mw.col.db.first(qry)[1]
+        # Card had not been seen yet at timeTravelDateTime
+        if ivl is None:
+            return 0
+        # If ivl is < 1, it's in seconds rather than days - we'll round that to 1 day for convenience
+        return max(ivl, 1)
+
+    def getKanjiCells(self, timeTravelDatetime=None):
         cids = mw.col.find_cards(self.filterInput.text())
         fieldNamePattern = self.fieldNamePatternInput.text()
 
         d = {}
         for cid in cids:
             card = mw.col.get_card(cid)
+            ivl = card.ivl
+            if timeTravelDatetime:
+                ivl = self.getTimeTravelIvl(card.id, timeTravelDatetime)
             note = card.note()
             matchingFields = [f for f in note.keys() if fnmatch.fnmatch(f, fieldNamePattern)]
             kanji = [char for matchingField in matchingFields for char in note[matchingField] if isKanji(char)]
             for k in kanji:
-                if k not in d or card.ivl > d[k]['ivl']:
+                if k not in d or ivl > d[k]['ivl']:
                     d[k] = {
-                        'ivl': card.ivl,
+                        'ivl': ivl,
                         'id': card.id
                     }
         return [KanjiCell(idx=v['id'], value=k, ivl=v['ivl']) for k, v in d.items()]
@@ -370,13 +380,13 @@ class MyApp(QWidget):
         self.sizeGroupBox.layout.addWidget(self.specifyRowsRadio)
         self.sizeGroupBox.layout.addWidget(self.specifyRowsSpin)
 
-        # self.timeTravelInput = QDateTimeEdit()
-        # self.timeTravelInput.setCalendarPopup(True)
-        # self.timeTravelInput.setDateTime(QDateTime.currentDateTime())
-        # self.timeTravelGroupBox = MyGroupBox('Time Travel To')
-        # self.timeTravelGroupBox.layout.addWidget(self.timeTravelInput)
-        # self.timeTravelGroupBox.setCheckable(True)
-        # self.timeTravelGroupBox.setChecked(False)
+        self.timeTravelInput = QDateTimeEdit()
+        self.timeTravelInput.setCalendarPopup(True)
+        self.timeTravelInput.setDateTime(QDateTime.currentDateTime())
+        self.timeTravelGroupBox = MyGroupBox('Time Travel To')
+        self.timeTravelGroupBox.layout.addWidget(self.timeTravelInput)
+        self.timeTravelGroupBox.setCheckable(True)
+        self.timeTravelGroupBox.setChecked(False)
 
         self.sortCombo = QComboBox()
         self.sortCombo.addItems(['Index', 'Interval'])
@@ -429,8 +439,8 @@ class MyApp(QWidget):
         self.themeCombo.currentIndexChanged.connect(self.themeChanged)
         self.themeSmoothCheck.stateChanged.connect(self.smoothToggled)
         self.strongIntervalSpin.textChanged.connect(self.strongIntervalChanged)
-        # self.timeTravelGroupBox.toggled.connect(self.timeTravelToggled)
-        # self.timeTravelInput.dateTimeChanged.connect(self.timeTravelDateChanged)
+        self.timeTravelGroupBox.toggled.connect(self.timeTravelToggled)
+        self.timeTravelInput.dateTimeChanged.connect(self.timeTravelDateChanged)
         self.fieldNamePatternInput.returnPressed.connect(self.fieldNamePatternChanged)
         self.fieldNamePatternInput.focusLost.connect(self.fieldNamePatternChanged)
         self.filterInput.returnPressed.connect(self.filterChanged)
@@ -452,7 +462,7 @@ class MyApp(QWidget):
         self.settingsGroupBox.layout.addWidget(self.strongIntervalGroupBox)
         self.settingsGroupBox.layout.addWidget(self.sizeGroupBox)
         self.settingsGroupBox.layout.addWidget(self.sortGroupBox)
-        # self.settingsGroupBox.layout.addWidget(self.timeTravelGroupBox)
+        self.settingsGroupBox.layout.addWidget(self.timeTravelGroupBox)
         self.settingsGroupBox.layout.addWidget(self.themeGroupBox)
         self.settingsGroupBox.layout.addWidget(self.fontSizeGroupBox)
         self.settingsGroupBox.layout.addWidget(self.qualityGroupBox)
@@ -488,11 +498,11 @@ class MyApp(QWidget):
     def takeScreenshot(self):
         self.table.screenshot(self.qualitySlider.value())
 
-    # def timeTravelDateChanged(self):
-    #     self.populateTable()
+    def timeTravelDateChanged(self):
+        self.populateTable()
 
-    # def timeTravelToggled(self):
-    #     self.populateTable()
+    def timeTravelToggled(self):
+        self.populateTable()
 
     def strongIntervalChanged(self):
         self.populateTable()
@@ -520,14 +530,13 @@ class MyApp(QWidget):
         elif self.fitToHeightRadio.isChecked():
             self.table.updateRowCount(self.table.rowsToFit())
 
-    def populateTable(self):  # timeTravelDatetime=None):
-        print('Starting  populatetable')
+    def populateTable(self, timeTravelDatetime=None):
         self.table.clear()
 
-        # if not timeTravelDatetime and self.timeTravelGroupBox.isChecked():
-        #     timeTravelDatetime = self.timeTravelInput.dateTime().toPyDateTime()
+        if not timeTravelDatetime and self.timeTravelGroupBox.isChecked():
+            timeTravelDatetime = self.timeTravelInput.dateTime().toPyDateTime()
 
-        cells = self.getKanjiCells()  # timeTravelDatetime)
+        cells = self.getKanjiCells(timeTravelDatetime)
         self.setWindowTitle(f'Kanji Table ({len(cells)})')
         if self.sortCombo.currentText() == 'Index':
             cells = sorted(cells, key=lambda _: _.idx)
@@ -572,7 +581,6 @@ class MyApp(QWidget):
 
         self.table.resizeCellsToFitContents()
 
-        print('ending populatetable')
 
     def showEvent(self, event):
         super().showEvent(event)
