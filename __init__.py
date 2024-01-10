@@ -1,20 +1,12 @@
 # NOTES
-# The interval on the most recent review is not always equal to the interval on the card.
-# Any rescheduling (i.e. via FSRS Helper) can change the interval on the card without changing the interval in the revlog.
-# Just something to keep in mind. Time travel is still accurate to the time you travel to -
-#   on the day of the revlog, that WAS the interval after the review. So this is almost desirous?
-#
 # The time it takes to save the png is 70 times larger than the steps leading up to it so don't waste time trying to optimize that much
 # ex. 0.3s vs 24.3s
 # NOTE the way I save pngs has changed so see if this has changed ^^^
 #
 # Any user-input times need to be converted to utc with datetime.astimezone(localTZ) because DB is in utc
-#
-# Foreground colors are currently ignored, we just invert the background. Change that?
 
 # TODO
 #   Grid lines are different color at very bottom??
-#   Table totally borks if you switch from dark/light mode and vice versa
 #   Add more stuff to context menu?
 #   Make sure times are being converted to the correct time zones
 #   Make stuff into enums like which size option is selected and junk
@@ -84,16 +76,6 @@ class MyQTableWidget(QTableWidget):
         self.customContextMenuRequested.connect(self.showContextMenu)
         self.setStyleSheet(self.defaultCSS)
 
-    def mostMatureClicked(self, cid):
-        browserSearch(f'cid:{cid}')
-
-    def allMatchingClicked(self, cids):
-        browserSearch(f'cid:{",".join(cids)}')
-
-    def addClicked(self, kanji):
-        QGuiApplication.clipboard().setText(kanji)
-        addDialog = dialogs.open('AddCards', mw)
-
     def showContextMenu(self, point):
         cell = self.itemAt(point)
         if not isinstance(cell, KanjiCell):
@@ -105,15 +87,15 @@ class MyQTableWidget(QTableWidget):
 
         if cell.data['ivl'] is not None:
             a = QAction(f'Most Mature Card ({cell.data["ivl"]}d)')
-            a.triggered.connect(lambda _: self.mostMatureClicked(cell.data['cid']))
+            a.triggered.connect(cell.mostMatureClicked)
             actions.append(a)
 
             a = QAction(f'All Matching Cards ({len(cell.data["allcids"])})')
-            a.triggered.connect(lambda _: self.allMatchingClicked(cell.data["allcids"]))
+            a.triggered.connect(cell.allMatchingClicked)
             actions.append(a)
         else:
             a = QAction('Copy to clipboard and open Add Card dialog')
-            a.triggered.connect(lambda _: self.addClicked(cell.text()))
+            a.triggered.connect(cell.addClicked)
             actions.append(a)
 
         for action in actions:
@@ -191,7 +173,7 @@ class MyQLineEdit(QLineEdit):
 class MyQTableWidgetItem(QTableWidgetItem):
     def setColors(self, fg=None, bg=None):
         if fg is None and bg is None:
-            return
+            raise Exception('Must provide either fg or bg')
         if fg is None:
             fg = QBrush(invertColor(bg))
         elif bg is None:
@@ -251,45 +233,55 @@ class KanjiCell(MyQTableWidgetItem):
     def clicked(self):
         webbrowser.open(f'https://jisho.org/search/{self.text()} %23kanji')
 
-    def __eq__(self, other):
-        if isinstance(other, str):
-            return self.text() == other
-        if isinstance(other, KanjiCell):
-            return self.text() == other.character
+    def mostMatureClicked(self, cid):
+        browserSearch(f'cid:{self.data["cid"]}')
 
-        raise NotImplementedError
+    def allMatchingClicked(self, cids):
+        browserSearch(f'cid:{",".join(self.data["allcids"])}')
 
-    def __gt__(self, other):
-        # if isinstance(other, int):
-        #     return self.sortOrder > other
-        if isinstance(other, KanjiCell):
-            return self.sortOrder > other.sortOrder
+    def addClicked(self, kanji):
+        QGuiApplication.clipboard().setText(self.text())
+        addDialog = dialogs.open('AddCards', mw)
 
-        raise NotImplementedError
-
-    def __ge__(self, other):
-        # if isinstance(other, int):
-        #     return self.sortOrder >= other
-        if isinstance(other, KanjiCell):
-            return self.sortOrder >= other.sortOrder
-
-        raise NotImplementedError
-
-    def __lt__(self, other):
-        # if isinstance(other, int):
-        #     return self.sortOrder < other
-        if isinstance(other, KanjiCell):
-            return self.sortOrder < other.sortOrder
-
-        raise NotImplementedError
-
-    def __le__(self, other):
-        # if isinstance(other, int):
-        #     return self.sortOrder <= other
-        if isinstance(other, KanjiCell):
-            return self.sortOrder <= other.sortOrder
-
-        raise NotImplementedError
+    # def __eq__(self, other):
+    #     if isinstance(other, str):
+    #         return self.text() == other
+    #     if isinstance(other, KanjiCell):
+    #         return self.text() == other.character
+    #
+    #     raise NotImplementedError
+    #
+    # def __gt__(self, other):
+    #     # if isinstance(other, int):
+    #     #     return self.sortOrder > other
+    #     if isinstance(other, KanjiCell):
+    #         return self.sortOrder > other.sortOrder
+    #
+    #     raise NotImplementedError
+    #
+    # def __ge__(self, other):
+    #     # if isinstance(other, int):
+    #     #     return self.sortOrder >= other
+    #     if isinstance(other, KanjiCell):
+    #         return self.sortOrder >= other.sortOrder
+    #
+    #     raise NotImplementedError
+    #
+    # def __lt__(self, other):
+    #     # if isinstance(other, int):
+    #     #     return self.sortOrder < other
+    #     if isinstance(other, KanjiCell):
+    #         return self.sortOrder < other.sortOrder
+    #
+    #     raise NotImplementedError
+    #
+    # def __le__(self, other):
+    #     # if isinstance(other, int):
+    #     #     return self.sortOrder <= other
+    #     if isinstance(other, KanjiCell):
+    #         return self.sortOrder <= other.sortOrder
+    #
+    #     raise NotImplementedError
 
 
 class KanjiTable(MyQTableWidget):
@@ -439,9 +431,12 @@ class KanjiData:
     def kanjiCell(self):
         return KanjiCell(self.kanji, self.data)
 
+    def keepMostMature(self, other):
+        if self < other:
+            other.data['allcids'].update(self.data['allcids'])
+            self.data = other.data
+
     def __gt__(self, other):
-        # if isinstance(other, int):
-        #     return self.data.get('ivl', 0) > other
         if isinstance(other, KanjiData):
             if self.data['ivl'] is None and other.data['ivl'] is not None:
                 return False
@@ -450,8 +445,6 @@ class KanjiData:
         raise NotImplementedError
 
     def __lt__(self, other):
-        # if isinstance(other, int):
-        #     return self.data.get('ivl', 0) < other
         if isinstance(other, KanjiData):
             if self.data['ivl'] is None and other.data['ivl'] is not None:
                 return True
@@ -464,11 +457,8 @@ class KanjiDataDict(dict):
     def __setitem__(self, kanjiChar, kanjiData):
         if kanjiChar not in self:
             dict.__setitem__(self, kanjiChar, kanjiData)
-        # One KanjiData is less than the other if it has a shorter ivl
-        # TODO Move this all to like an update() function on KanjiData?
-        elif self[kanjiChar] < kanjiData:
-            kanjiData.data['allcids'].update(self[kanjiChar].data['allcids'])
-            dict.__setitem__(self, kanjiChar, kanjiData)
+        else:
+            self[kanjiChar].keepMostMature(kanjiData)
 
     def updateFromCard(self, card, kanjiChars, timeTravelDatetime):
         for kanjiChar in kanjiChars:
@@ -496,7 +486,7 @@ class KanjiDataDict(dict):
         for kanjiData in self.values():
             foundLevel, foundIdx = levelSystem.findCharacter(kanjiData.kanji)
             if foundLevel:
-                r[foundLevel][kanjiData.kanji] = kanjiData
+                r[foundLevel][kanjiData.kanji].keepMostMature(kanjiData)
             else:
                 r[f'Not in {levelSystem.name}'][kanjiData.kanji] = kanjiData
         return r
@@ -504,6 +494,7 @@ class KanjiDataDict(dict):
 
 class MyApp(QWidget):
     themeManager = ThemeManager()
+    hasBeenBuilt = False
 
     def getMatchingKanjiFromNote(self, note):
         fieldNamePattern = self.fieldNamePatternInput.text()
@@ -743,8 +734,7 @@ class MyApp(QWidget):
 
         cells = self.getKanjiCells(timeTravelDatetime)
         if not cells:
-            self.table.setColumnCount(0)
-            self.table.setRowCount(0)
+            self.table.clear()
             self.savePNGBtn.setEnabled(False)
             self.setWindowTitle('Kanji Table (0)')
             return
@@ -765,11 +755,15 @@ class MyApp(QWidget):
 
     def showEvent(self, event):
         ''' QWidget.size() has unexpected values until everything is shown so wait until after showing then populate '''
-        self.buildGUI()
+        if not self.hasBeenBuilt:
+            self.buildGUI()
+            # Qt weirdness means we have to do this with a QTimer instead of calling it directly
+            # https://stackoverflow.com/a/56852841/3261260
+            QTimer.singleShot(0, self.populateTable)
+            self.hasBeenBuilt = True
+        # IDK why but sometimes this is necessary (after closing the window then changing themes and stuff)
+        self.table.resizeCellsToFitContents()
         super().showEvent(event)
-        # Qt weirdness means we have to do this with a QTimer instead of calling it directly
-        # https://stackoverflow.com/a/56852841/3261260
-        QTimer.singleShot(0, self.populateTable)
 
     '''
     class GIFDialog(QDialog):
