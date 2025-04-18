@@ -1,4 +1,4 @@
-# NOTES
+# NOTE
 # The time it takes to save the png is 70 times larger than the steps leading up to it so don't waste time trying to optimize that much
 # ex. 0.3s vs 24.3s
 # NOTE the way I save pngs has changed so see if this has changed ^^^
@@ -26,12 +26,14 @@
 import fnmatch
 import re
 import sys
+from typing import Generator
 
 from aqt import gui_hooks, mw
 from aqt.qt import (
     QAction,
     QButtonGroup,
     QCheckBox,
+    QColor,
     QComboBox,
     QDateTime,
     QDateTimeEdit,
@@ -48,10 +50,10 @@ from aqt.qt import (
     QVBoxLayout,
     QWidget,
     pyqtSignal,
-    qconnect
+    qconnect,
 )
 
-from .colorUtils import getColor, themes
+from .colorUtils import ThemeManager, getColor, themes
 from .data import levelSystems
 from .KanjiTable import KanjiCell, KanjiDataDict, KanjiTable, LevelCell
 from .utils import MyGroupBox
@@ -68,15 +70,31 @@ from .utils import MyGroupBox
 # exe = os.path.join(os.path.dirname(__file__), 'ffmpeg.exe')
 # localTZ = datetime.datetime.utcnow().astimezone().tzinfo  # https://stackoverflow.com/a/39079819
 
-kanjiRegex = re.compile(r'[㐀-䶵一-鿋豈-頻]')
+kanjiRegex = re.compile(r"[㐀-䶵一-鿋豈-頻]")
 
 
-def isKanji(character):
+def isKanji(character: str) -> bool:
     return bool(kanjiRegex.match(character))
+    # return any(
+    #     [
+    #         start <= ord(character) <= end
+    #         for start, end in [
+    #             (4352, 4607),
+    #             (11904, 42191),
+    #             (43072, 43135),
+    #             (44032, 55215),
+    #             (63744, 64255),
+    #             (65072, 65103),
+    #             (65381, 65500),
+    #             (131072, 196607),
+    #         ]
+    #     ]
+    # )
 
 
 class MyQLineEdit(QLineEdit):
-    ''' QLineEdit that emits a valueChanged signal if the value is changed between focusIn and focusOut '''
+    """QLineEdit that emits a valueChanged signal if the value is changed between focusIn and focusOut"""
+
     valueChanged = pyqtSignal()
 
     def focusInEvent(self, event):
@@ -89,22 +107,15 @@ class MyQLineEdit(QLineEdit):
         super().focusOutEvent(event)
 
 
-class ThemeManager():
-    selectedTheme = None
-    smooth = False
-    strongIvl = 0
-
-    def getColor(self, pct):
-        return getColor(self.selectedTheme, pct / self.strongIvl, self.smooth)
-
-
 class MyApp(QWidget):
-    themeManager = ThemeManager()
-    hasBeenBuilt = False
+    themeManager: ThemeManager = ThemeManager()
+    hasBeenBuilt: bool = False
 
-    def getMatchingKanjiFromNote(self, note):
+    def getMatchingKanjiFromNote(self, note) -> Generator[str, None, None]:
         fieldNamePattern = self.fieldNamePatternInput.text()
-        matchingFields = [f for f in note.keys() if fnmatch.fnmatch(f, fieldNamePattern)]
+        matchingFields = [
+            f for f in note.keys() if fnmatch.fnmatch(f, fieldNamePattern)
+        ]
         for matchingField in matchingFields:
             for char in note[matchingField]:
                 if isKanji(char):
@@ -114,7 +125,7 @@ class MyApp(QWidget):
         for cid in mw.col.find_cards(self.filterInput.text()):
             yield mw.col.get_card(cid)
 
-    def getKanjiCells(self, timeTravelDatetime=None):
+    def getKanjiCells(self, timeTravelDatetime: QDateTime = None) -> list[KanjiCell]:
         kanjiDatas = KanjiDataDict()
 
         for card in self.getMatchingCards():
@@ -123,14 +134,16 @@ class MyApp(QWidget):
 
         # TODO Make these functions be associated data of the combobox options
         # TODO Make these members of kanjidatadict?
-        if self.sortCombo.currentText() == 'Interval':
+        if self.sortCombo.currentText() == "Interval":
+
             def sortFunc(kanjiData):
-                if kanjiData.data['ivl'] is None:
+                if kanjiData.data["ivl"] is None:
                     return sys.maxsize
                 else:
-                    return -kanjiData.data['ivl']
-        elif self.sortCombo.currentText() == 'Index':
-            sortFunc = lambda _: _.data.get('levelIndex', 0)
+                    return -kanjiData.data["ivl"]
+
+        elif self.sortCombo.currentText() == "Index":
+            sortFunc = lambda _: _.data.get("levelIndex", 0)
 
         if self.groupByGroupBox.isChecked():
             selectedLevelSystem = levelSystems[self.groupByComboBox.currentText()]
@@ -143,7 +156,7 @@ class MyApp(QWidget):
         else:
             return kanjiDatas.toKanjiCells(sortFunc)
 
-    def buildGUI(self):
+    def buildGUI(self) -> None:
         self.mainLayout = QHBoxLayout(self)
 
         self.splitter = QSplitter()
@@ -151,29 +164,29 @@ class MyApp(QWidget):
         self.leftContainer = QWidget()
         self.leftLayout = QVBoxLayout(self.leftContainer)
 
-        self.settingsGroupBox = MyGroupBox('Settings')
+        self.settingsGroupBox = MyGroupBox("Settings")
         self.middleScroll = QScrollArea()
         self.middleScroll.setWidgetResizable(True)
         self.middleScroll.setWidget(self.settingsGroupBox)
 
-        self.fieldNameGroupBox = MyGroupBox('Field Name')
-        self.fieldNamePatternInput = MyQLineEdit('*Kanji*')
+        self.fieldNameGroupBox = MyGroupBox("Field Name")
+        self.fieldNamePatternInput = MyQLineEdit("Japanese")
         self.fieldNameGroupBox.layout.addWidget(self.fieldNamePatternInput)
 
-        self.filterGroupBox = MyGroupBox('Filter')
-        self.filterInput = MyQLineEdit('deck:*')
+        self.filterGroupBox = MyGroupBox("Filter")
+        self.filterInput = MyQLineEdit("deck:*")
         self.filterGroupBox.layout.addWidget(self.filterInput)
 
         self.strongIntervalSpin = QSpinBox()
         self.strongIntervalSpin.setRange(1, 65536)
         self.strongIntervalSpin.setValue(21)
-        self.strongIntervalGroupBox = MyGroupBox('Card interval considered strong')
+        self.strongIntervalGroupBox = MyGroupBox("Card interval considered strong")
         self.strongIntervalGroupBox.layout.addWidget(self.strongIntervalSpin)
 
-        self.sizeGroupBox = MyGroupBox('Size')
+        self.sizeGroupBox = MyGroupBox("Size")
         self.sizeButtonGroup = QButtonGroup()
-        self.fitToWidthRadio = QRadioButton('Fit to Width')
-        self.specifyColumnsRadio = QRadioButton('Specify Columns')
+        self.fitToWidthRadio = QRadioButton("Fit to Width")
+        self.specifyColumnsRadio = QRadioButton("Specify Columns")
         self.sizeButtonGroup.addButton(self.fitToWidthRadio)
         self.sizeButtonGroup.addButton(self.specifyColumnsRadio)
 
@@ -188,30 +201,32 @@ class MyApp(QWidget):
         self.timeTravelInput = QDateTimeEdit()
         self.timeTravelInput.setCalendarPopup(True)
         self.timeTravelInput.setDateTime(QDateTime.currentDateTime())
-        self.timeTravelGroupBox = MyGroupBox('Time Travel To')
+        self.timeTravelGroupBox = MyGroupBox("Time Travel To")
         self.timeTravelGroupBox.layout.addWidget(self.timeTravelInput)
         self.timeTravelGroupBox.setCheckable(True)
         self.timeTravelGroupBox.setChecked(False)
 
-        self.groupByGroupBox = MyGroupBox('Group By')
+        self.groupByGroupBox = MyGroupBox("Group By")
         self.groupByGroupBox.setCheckable(True)
+        self.groupByGroupBox.setChecked(False)
+
         self.groupByComboBox = QComboBox()
         self.groupByComboBox.addItems(levelSystems.keys())
         self.groupByGroupBox.layout.addWidget(self.groupByComboBox)
 
-        self.sortGroupBox = MyGroupBox('Sort')
+        self.sortGroupBox = MyGroupBox("Sort")
         self.sortCombo = QComboBox()
-        self.sortCombo.addItems(['Index', 'Interval'])
+        self.sortCombo.addItems(["Index", "Interval"])
         self.sortGroupBox.layout.addWidget(self.sortCombo)
 
         self.themeCombo = QComboBox()
         self.themeCombo.addItems(themes.keys())
-        self.themeSmoothCheck = QCheckBox('Smooth')
-        self.themeGroupBox = MyGroupBox('Theme')
+        self.themeSmoothCheck = QCheckBox("Smooth")
+        self.themeGroupBox = MyGroupBox("Theme")
         self.themeGroupBox.layout.addWidget(self.themeCombo)
         self.themeGroupBox.layout.addWidget(self.themeSmoothCheck)
 
-        self.qualityGroupBox = MyGroupBox('PNG Quality')
+        self.qualityGroupBox = MyGroupBox("PNG Quality")
         self.qualitySlider = QSlider()
         self.qualitySlider.setOrientation(Qt.Orientation.Horizontal)
         self.qualitySlider.setMinimum(25)
@@ -222,7 +237,7 @@ class MyApp(QWidget):
         self.leftLayoutBottomLayout = QHBoxLayout()
         self.generateBtn = QPushButton("Generate")
 
-        self.savePNGBtn = QPushButton('Save PNG')
+        self.savePNGBtn = QPushButton("Save PNG")
         # self.openGIFBtn = QPushButton('Create GIF')
 
         # Table stuff
@@ -231,14 +246,16 @@ class MyApp(QWidget):
         self.table = KanjiTable()
         self.tableLayout.addWidget(self.table)
 
-        self.fontSizeGroupBox = MyGroupBox('Table Font Size')
+        self.fontSizeGroupBox = MyGroupBox("Table Font Size")
         self.fontSizeSlider = QSlider()
         self.fontSizeSlider.setOrientation(Qt.Orientation.Horizontal)
         self.fontSizeSlider.setMinimum(5)
         self.fontSizeSlider.setMaximum(50)
         self.fontSizeGroupBox.layout.addWidget(self.fontSizeSlider)
 
-        self.table.horizontalHeader().setMinimumSectionSize(self.fontSizeSlider.minimum())
+        self.table.horizontalHeader().setMinimumSectionSize(
+            self.fontSizeSlider.minimum()
+        )
         self.table.verticalHeader().setMinimumSectionSize(self.fontSizeSlider.minimum())
 
         # Connect signals to slots
@@ -299,41 +316,41 @@ class MyApp(QWidget):
         self.fontSizeSlider.setValue(12)
 
     # TODO use paramter instead of currenttext()?
-    def themeSelectionChanged(self, *args, **kwargs):
+    def themeSelectionChanged(self, *args, **kwargs) -> None:
         self.themeManager.selectedTheme = self.themeCombo.currentText()
         self.table.updateAllColors(self.themeManager)
 
     # TODO use paramter instead of value()?
-    def strongIntervalChanged(self, *args, **kwargs):
+    def strongIntervalChanged(self, *args, **kwargs) -> None:
         self.themeManager.strongIvl = self.strongIntervalSpin.value()
         self.table.updateAllColors(self.themeManager)
 
-    def smoothChanged(self, *args, **kwargs):
+    def smoothChanged(self, *args, **kwargs) -> None:
         self.themeManager.smooth = self.themeSmoothCheck.isChecked()
         self.table.updateAllColors(self.themeManager)
 
-    def sizeChanged(self, *args, **kwargs):
+    def sizeChanged(self, *args, **kwargs) -> None:
         if self.specifyColumnsRadio.isChecked():
             self.specifyColumnsSpin.setEnabled(True)
         else:
             self.specifyColumnsSpin.setEnabled(False)
-        copies = [c.copy() for c in self.table.allItems()]
+        copies = [c.copy() for c in self.table.allCells()]
         self.table.clear()
         self.setTableColumns(len(copies))
         self.table.appendItems(copies)
         self.table.resizeCellsToFitContents()
 
-    def somethingChanged(self, *args, **kwargs):
+    def somethingChanged(self, *args, **kwargs) -> None:
         self.populateTable()
 
-    def takeScreenshot(self):
+    def takeScreenshot(self) -> None:
         self.table.screenshot(self.qualitySlider.value())
 
-    def fontSizeSliderMoved(self, newSize):
+    def fontSizeSliderMoved(self, newSize: int) -> None:
         self.table.setFontSize(newSize)
         self.sizeChanged()
 
-    def populateTable(self, timeTravelDatetime=None):
+    def populateTable(self, timeTravelDatetime: QDateTime = None) -> None:
         self.table.clear()
 
         if not timeTravelDatetime and self.timeTravelGroupBox.isChecked():
@@ -343,25 +360,27 @@ class MyApp(QWidget):
         if not cells:
             self.table.clear()
             self.savePNGBtn.setEnabled(False)
-            self.setWindowTitle('Kanji Table (0)')
+            self.setWindowTitle("Kanji Table (0)")
             return
         self.savePNGBtn.setEnabled(True)
 
-        self.setWindowTitle(f'Kanji Table ({len([c for c in cells if isinstance(c, KanjiCell)])})')
+        self.setWindowTitle(
+            f"Kanji Table ({len([c for c in cells if isinstance(c, KanjiCell)])})"
+        )
         self.setTableColumns(len(cells))
         self.table.appendItems(cells)
         self.table.resizeCellsToFitContents()
         self.table.updateAllColors(self.themeManager)
 
-    def setTableColumns(self, cellCount):
+    def setTableColumns(self, cellCount: int) -> None:
         if self.fitToWidthRadio.isChecked():
             cols = self.table.howManyColsWillFit()
         elif self.specifyColumnsRadio.isChecked():
             cols = self.specifyColumnsSpin.value()
         self.table.setColumnCount(cols)
 
-    def showEvent(self, event):
-        ''' QWidget.size() has unexpected values until everything is shown so wait until after showing then populate '''
+    def showEvent(self, event) -> None:
+        """QWidget.size() has unexpected values until everything is shown so wait until after showing then populate"""
         if not self.hasBeenBuilt:
             self.buildGUI()
             # Qt weirdness means we have to do this with a QTimer instead of calling it directly
@@ -372,7 +391,7 @@ class MyApp(QWidget):
         self.table.resizeCellsToFitContents()
         super().showEvent(event)
 
-    '''
+    """
     class GIFDialog(QDialog):
         def manualStartDateToggled(self, isChecked):
             self.startDateInput.setEnabled(isChecked)
@@ -523,16 +542,16 @@ class MyApp(QWidget):
         self.table.cleanup(oldSize)
         self.populateTable()  # Reset table
         mw.progress.finish()
-    '''
+    """
 
 
-def showConfig():
+def showConfig() -> None:
     mw.kanjiGridWidget.showMaximized()
 
 
-def setup():
+def setup() -> None:
     mw.kanjiGridWidget = widget = MyApp()
-    action = QAction('Kanji Table', mw)
+    action = QAction("Kanji Table", mw)
     qconnect(action.triggered, showConfig)
     mw.form.menuTools.addAction(action)
 
