@@ -1,6 +1,5 @@
 from aqt.qt import QColor
 
-
 themes = {
     'Classic': list(map(QColor, [
         '#E62E2E', '#E68A2E', '#E6E62E', '#8AE62E', '#2EE62E', '#2EE68A', '#2EE6E6'
@@ -17,18 +16,27 @@ themes = {
 }
 
 
-def invertColor(c):
+class ThemeManager():
+    selectedTheme: str = None
+    smooth: bool = False
+    strongIvl: int = 0
+
+    def getColor(self, pct: float) -> QColor:
+        return getColor(self.selectedTheme, pct / self.strongIvl, self.smooth)
+
+
+def invertColor(c: QColor) -> QColor:
     return QColor(255 - c.red(), 255 - c.green(), 255 - c.blue())
 
 
-def interpolateColors(start, end, ratio):
+def interpolateColors(start: QColor, end: QColor, ratio: int) -> QColor:
     r = int(ratio * start.red() + (1 - ratio) * end.red())
     g = int(ratio * start.green() + (1 - ratio) * end.green())
     b = int(ratio * start.blue() + (1 - ratio) * end.blue())
     return QColor(r, g, b)
 
 
-def getColor(theme, pct, smooth=False):
+def getColor(theme: str, pct: float, smooth: bool=False) -> QColor:
     bands = themes[theme]
     startF = (len(bands) - 1) * pct
     start = min(int(startF), len(bands) - 1)
