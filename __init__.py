@@ -170,7 +170,7 @@ class MyApp(QWidget):
         self.middleScroll.setWidget(self.settingsGroupBox)
 
         self.fieldNameGroupBox = MyGroupBox("Field Name")
-        self.fieldNamePatternInput = MyQLineEdit("Japanese")
+        self.fieldNamePatternInput = MyQLineEdit("*Kanji*")
         self.fieldNameGroupBox.layout.addWidget(self.fieldNamePatternInput)
 
         self.filterGroupBox = MyGroupBox("Filter")
@@ -209,7 +209,6 @@ class MyApp(QWidget):
         self.groupByGroupBox = MyGroupBox("Group By")
         self.groupByGroupBox.setCheckable(True)
         self.groupByGroupBox.setChecked(False)
-
         self.groupByComboBox = QComboBox()
         self.groupByComboBox.addItems(levelSystems.keys())
         self.groupByGroupBox.layout.addWidget(self.groupByComboBox)
